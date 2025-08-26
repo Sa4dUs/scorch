@@ -1,8 +1,14 @@
+#![feature(adt_const_params)]
+#![feature(generic_const_exprs)]
+#![feature(nonzero_internals)]
+#![allow(incomplete_features)]
+
 pub mod activation;
 pub mod loss;
 
 mod layer;
 mod neural_network;
+mod tensor;
 
 use activation::ActivationFunction;
 
