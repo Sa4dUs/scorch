@@ -14,4 +14,5 @@ name = "scorch"
 path = "src/lib.rs"
 
 [dependencies]
+candle-core = "0.9.1"
 rand = "0.8.5"
