@@ -1,3 +1,5 @@
+extern crate test;
+
 #[derive(Debug)]
 pub struct Tensor<T, const SIZE: usize, const N: usize> {
     shape: [usize; N],
@@ -79,14 +81,16 @@ where
     type Output = Tensor<T, SIZE, N>;
 
     fn add(self, rhs: Tensor<T, SIZE, N>) -> Self::Output {
-        let mut out = Tensor::new(rhs.shape);
-        let data = self
-            .data
-            .iter()
-            .map(|x| *x + *rhs.data.iter().next().unwrap())
-            .collect::<Vec<_>>();
-        out.set_data(&data);
-        out
+        Tensor {
+            shape: rhs.shape,
+            strides: rhs.strides,
+            data: self
+                .data
+                .iter()
+                .map(|x| *x + *rhs.data.iter().next().unwrap())
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        }
     }
 }
 
@@ -120,6 +124,7 @@ macro_rules! count_exprs {
 
 #[cfg(test)]
 mod tests {
+    use super::test::Bencher;
     use crate::tensor::Tensor;
 
     #[test]
@@ -162,11 +167,12 @@ mod tests {
         assert_eq!(t.get([5]), None);
     }
 
-    #[test]
-    fn sum() {
-        let a = tensor_rand!(f32, 10);
-        let b = tensor_rand!(f32, 10);
-        let c = a + b;
-        dbg!(c);
+    #[bench]
+    fn bench_sum(b: &mut Bencher) {
+        b.iter(|| {
+            let t1 = tensor!(f32, 10);
+            let t2 = tensor!(f32, 10);
+            t1 + t2
+        })
     }
 }
