@@ -16,3 +16,4 @@ path = "src/lib.rs"
 [dependencies]
 candle-core = "0.9.1"
 rand = "0.8.5"
+rayon = "1.11.0"

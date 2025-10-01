@@ -877,6 +877,7 @@ version = "0.1.1"
 dependencies = [
  "candle-core",
  "rand 0.8.5",
+ "rayon",
 ]
 
 [[package]]
