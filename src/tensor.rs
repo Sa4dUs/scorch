@@ -1,5 +1,4 @@
 use std::sync::Arc;
-
 extern crate test;
 
 #[derive(Debug, Clone)]
@@ -33,7 +32,8 @@ pub trait TensorOps<T> {
     where
         T: Copy + std::ops::Div<Output = T>,
         Self: Sized;
-    fn tensor_mul(&self, rhs: &Self) -> Self
+
+    fn matmul(&self, rhs: &Self) -> Self
     where
         T: Copy + std::ops::Mul<Output = T> + std::ops::Add<Output = T> + Default,
         Self: Sized;
@@ -74,6 +74,9 @@ where
     rand::distributions::Standard: rand::distributions::Distribution<T>,
 {
     pub fn new(shape: [usize; N]) -> Self {
+        for &dim in &shape {
+            assert!(dim >= 1, "Dimension must be >= 1 but got {}", dim);
+        }
         let size: usize = shape.iter().product();
         let data = Arc::from(vec![T::default(); size]);
         let mut strides = [0; N];
@@ -84,7 +87,6 @@ where
             strides[i] = acc;
             acc *= shape[i];
         }
-
         Tensor {
             data,
             shape,
@@ -93,6 +95,9 @@ where
     }
 
     pub fn rand(shape: [usize; N]) -> Self {
+        for &dim in &shape {
+            assert!(dim >= 1, "Dimension must be >= 1 but got {}", dim);
+        }
         let size: usize = shape.iter().product();
         let data = (0..size)
             .map(|_| rand::random::<T>())
@@ -106,7 +111,6 @@ where
             strides[i] = acc;
             acc *= shape[i];
         }
-
         Tensor {
             data,
             shape,
@@ -115,6 +119,10 @@ where
     }
 
     pub fn set_data(&mut self, data: &[T]) {
+        assert!(
+            data.len() == self.data.len(),
+            "Input data length does not match tensor size"
+        );
         let slice = Arc::make_mut(&mut self.data);
         slice.copy_from_slice(data);
     }
@@ -169,7 +177,7 @@ where
 
     fn set(&mut self, idx: &[usize], value: T) -> Result<(), &'static str> {
         if idx.len() != N {
-            return Err("Invalid index dimensions");
+            return Err("Invalid index dimension");
         }
         let mut offset = 0;
         for (d, &i) in idx.iter().enumerate() {
@@ -211,39 +219,50 @@ where
         elementwise_op!(self, rhs, /)
     }
 
-    fn tensor_mul(&self, rhs: &Self) -> Self
+    fn matmul(&self, rhs: &Self) -> Self
     where
         T: Copy + std::ops::Mul<Output = T> + std::ops::Add<Output = T> + Default,
     {
         assert!(
             self.shape.len() >= 2 && rhs.shape.len() >= 2,
-            "Tensors must have at least 2 dimensions"
+            "Tensors must have rank >= 2"
         );
+        assert_eq!(self.shape.len(), rhs.shape.len(), "Tensor ranks must match");
+
+        let dim = self.shape.len();
+        let m = self.shape[dim - 2];
+        let k = self.shape[dim - 1];
+        let k2 = rhs.shape[dim - 2];
+        let n = rhs.shape[dim - 1];
+        let batch_shape = &self.shape[..dim - 2];
+
         assert_eq!(
-            self.shape[N - 1],
-            rhs.shape[N - 2],
-            "Inner dimensions must match"
+            batch_shape,
+            &rhs.shape[..dim - 2],
+            "Batch dimensions must match"
         );
+        assert_eq!(k, k2, "Inner matrix dimensions must match");
 
-        let batch_dims = &self.shape[..N - 2];
-        let m = self.shape[N - 2];
-        let k = self.shape[N - 1];
-        let n = rhs.shape[N - 1];
+        let mut result_shape = [0; N];
+        result_shape[..(dim - 2)].copy_from_slice(&self.shape[..(dim - 2)]);
+        result_shape[dim - 2] = m;
+        result_shape[dim - 1] = n;
 
-        let mut result = Self::new(self.shape);
-        let batch_size: usize = batch_dims.iter().product();
+        let mut result = Self::new(result_shape);
+
+        let batch_size: usize = batch_shape.iter().product();
 
         for batch in 0..batch_size {
             for i in 0..m {
                 for j in 0..n {
                     let mut sum = T::default();
-                    for l in 0..k {
-                        let a_idx = batch * (m * k) + i * k + l;
-                        let b_idx = batch * (k * n) + l * n + j;
-                        sum = sum + self.data[a_idx] * rhs.data[b_idx];
+                    for kk in 0..k {
+                        let a_index = batch * m * k + i * k + kk;
+                        let b_index = batch * k * n + kk * n + j;
+                        sum = sum + self.data[a_index] * rhs.data[b_index];
                     }
-                    let result_idx = batch * (m * n) + i * n + j;
-                    Arc::make_mut(&mut result.data)[result_idx] = sum;
+                    let result_index = batch * m * n + i * n + j;
+                    Arc::make_mut(&mut result.data)[result_index] = sum;
                 }
             }
         }
@@ -275,13 +294,17 @@ macro_rules! tensor_rand {
     }};
 }
 
+#[allow(unused)]
 macro_rules! product {
     ($x:expr) => { $x };
     ($x:expr, $($xs:expr),+) => { $x * product!($($xs),+) };
 }
 
+#[allow(unused)]
 macro_rules! count_exprs {
-    ($($x:expr),*) => { <[()]>::len(&[$(count_exprs!(@sub $x)),*]) };
+    ($($x:expr),*) => {
+        <[()]>::len(&[$(count_exprs!(@sub $x)),*])
+    };
     (@sub $x:expr) => { () };
 }
 
@@ -347,7 +370,7 @@ mod tests {
         a.set_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         b.set_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
 
-        let c = a.tensor_mul(&b);
+        let c = a.matmul(&b);
 
         assert_eq!(c.get([0, 0]), Some(&22.0));
         assert_eq!(c.get([0, 1]), Some(&28.0));
@@ -366,7 +389,7 @@ mod tests {
     fn bench_matmul(b: &mut Bencher) {
         let t1 = tensor!(f32, 100, 100);
         let t2 = tensor!(f32, 100, 100);
-        b.iter(|| t1.tensor_mul(&t2))
+        b.iter(|| t1.matmul(&t2))
     }
 
     #[bench]
@@ -404,7 +427,7 @@ mod tests {
     fn bench_small_batched_matmul(b: &mut Bencher) {
         let t1 = tensor!(f32, 10, 32, 32);
         let t2 = tensor!(f32, 10, 32, 32);
-        b.iter(|| t1.tensor_mul(&t2))
+        b.iter(|| t1.matmul(&t2))
     }
 
     #[bench]
