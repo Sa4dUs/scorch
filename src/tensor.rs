@@ -39,6 +39,13 @@ pub trait TensorOps<T> {
         Self: Sized;
 }
 
+pub trait TensorMathOps {
+    fn exp(&self) -> Self;
+    fn ln(&self) -> Self;
+    fn sin(&self) -> Self;
+    fn cos(&self) -> Self;
+}
+
 #[macro_export]
 macro_rules! elementwise_op {
     ($self:expr, $rhs:expr, $op:tt) => {{
@@ -276,6 +283,48 @@ impl_elementwise!(sub, Sub, sub);
 impl_elementwise!(mul, Mul, mul);
 impl_elementwise!(div, Div, div);
 
+impl<T: Copy + Into<f64> + From<f64>, const SIZE: usize, const N: usize> TensorMathOps
+    for Tensor<T, SIZE, N>
+where
+    T: Copy,
+{
+    fn exp(&self) -> Self {
+        let data = self.data.iter().map(|&x| T::from(x.into().exp())).collect();
+        Tensor {
+            shape: self.shape,
+            strides: self.strides,
+            data,
+        }
+    }
+
+    fn ln(&self) -> Self {
+        let data = self.data.iter().map(|&x| T::from(x.into().ln())).collect();
+        Tensor {
+            shape: self.shape,
+            strides: self.strides,
+            data,
+        }
+    }
+
+    fn sin(&self) -> Self {
+        let data = self.data.iter().map(|&x| T::from(x.into().sin())).collect();
+        Tensor {
+            shape: self.shape,
+            strides: self.strides,
+            data,
+        }
+    }
+
+    fn cos(&self) -> Self {
+        let data = self.data.iter().map(|&x| T::from(x.into().cos())).collect();
+        Tensor {
+            shape: self.shape,
+            strides: self.strides,
+            data,
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! tensor {
     ($t:ty, $($dim:expr),+) => {{
@@ -436,5 +485,39 @@ mod tests {
         let t1 = candle_core::Tensor::randn(0f32, 1., (10, 32, 32), &device).unwrap();
         let t2 = candle_core::Tensor::randn(0f32, 1., (10, 32, 32), &device).unwrap();
         b.iter(|| t1.matmul(&t2))
+    }
+
+    use super::*;
+
+    #[test]
+    fn test_exp() {
+        let mut t = tensor!(f64, 3);
+        t.set_data(&[0.0, 1.0, 2.0]);
+        let res = t.exp();
+        assert!((res.get([0]).unwrap() - 1.0).abs() < 1e-10);
+        assert!((res.get([1]).unwrap() - std::f64::consts::E).abs() < 1e-10);
+        assert!((res.get([2]).unwrap() - std::f64::consts::E.powi(2)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ln() {
+        let mut t = tensor!(f64, 3);
+        t.set_data(&[1.0, std::f64::consts::E, std::f64::consts::E.powi(2)]);
+        let res = t.ln();
+        assert!((res.get([0]).unwrap() - 0.0).abs() < 1e-10);
+        assert!((res.get([1]).unwrap() - 1.0).abs() < 1e-10);
+        assert!((res.get([2]).unwrap() - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sin_cos() {
+        let mut t = tensor!(f64, 2);
+        t.set_data(&[0.0, std::f64::consts::FRAC_PI_2]);
+        let sin_res = t.sin();
+        let cos_res = t.cos();
+        assert!((sin_res.get([0]).unwrap() - 0.0).abs() < 1e-10);
+        assert!((sin_res.get([1]).unwrap() - 1.0).abs() < 1e-10);
+        assert!((cos_res.get([0]).unwrap() - 1.0).abs() < 1e-10);
+        assert!((cos_res.get([1]).unwrap() - 0.0).abs() < 1e-10);
     }
 }
